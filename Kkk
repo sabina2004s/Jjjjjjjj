@@ -1,0 +1,95 @@
+from flask import Flask, render_template, request, redirect
+import sqlite3
+
+app = Flask(__name__)
+
+# Инициализация базы
+def init_db():
+    conn = sqlite3.connect("data.db")
+    cur = conn.cursor()
+
+    # Таблица товаров
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS gloves (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            price INTEGER,
+            stock INTEGER
+        )
+    """)
+
+    # Таблица продаж
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            glove_id INTEGER,
+            quantity INTEGER,
+            date TEXT
+        )
+    """)
+
+    # Добавляем товары, если пусто
+    cur.execute("SELECT COUNT(*) FROM gloves")
+    if cur.fetchone()[0] == 0:
+        items = [
+            ("Перчатки 'Стандарт'", 150, 200),
+            ("Перчатки 'ХБ Плотные'", 220, 150),
+            ("Перчатки 'Люкс'", 350, 100),
+            ("Перчатки 'С ПВХ точкой'", 250, 180),
+            ("Перчатки 'Тёплые'", 300, 120),
+            ("Перчатки 'Усиленные'", 400, 90),
+            ("Перчатки 'С резиновой ладонью'", 380, 110),
+            ("Перчатки 'Полиэстеровые'", 170, 210),
+            ("Перчатки 'Тактические'", 450, 70),
+            ("Перчатки 'Строительные PRO'", 500, 50)
+        ]
+        cur.executemany("INSERT INTO gloves (name, price, stock) VALUES (?, ?, ?)", items)
+
+    conn.commit()
+    conn.close()
+
+@app.route("/")
+def index():
+    conn = sqlite3.connect("data.db")
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM gloves")
+    gloves = cur.fetchall()
+
+    cur.execute("""
+        SELECT sales.id, gloves.name, sales.quantity, sales.date
+        FROM sales JOIN gloves ON sales.glove_id = gloves.id
+        ORDER BY sales.id DESC
+    """)
+    sales = cur.fetchall()
+
+    conn.close()
+    return render_template("index.html", gloves=gloves, sales=sales)
+
+@app.route("/sell", methods=["POST"])
+def sell():
+    glove_id = request.form["glove_id"]
+    quantity = int(request.form["quantity"])
+
+    conn = sqlite3.connect("data.db")
+    cur = conn.cursor()
+
+    cur.execute("SELECT stock FROM gloves WHERE id=?", (glove_id,))
+    stock = cur.fetchone()[0]
+
+    if quantity > stock:
+        conn.close()
+        return "Недостаточно товара на складе"
+
+    cur.execute("UPDATE gloves SET stock = stock - ? WHERE id=?", (quantity, glove_id))
+    cur.execute("INSERT INTO sales (glove_id, quantity, date) VALUES (?, ?, DATE('now'))",
+                (glove_id, quantity))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/")
+
+if __name__ == "__main__":
+    init_db()
+    app.run(host="0.0.0.0", port=5000)
